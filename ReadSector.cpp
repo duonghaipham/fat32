@@ -5,6 +5,10 @@
 #include <string>
 #include <wchar.h>
 #include <vector>
+#include <sstream>
+
+#include <io.h>
+#include <fcntl.h>
 
 #define START_POINT_FILE 0
 #define BYTES_READ 512
@@ -16,6 +20,14 @@ vector<wchar_t> operator+(vector<wchar_t> lhs, vector<wchar_t> rhs) {
     result.reserve(lhs.size() + rhs.size());
     result.insert(result.end(), lhs.begin(), lhs.end());
     result.insert(result.end(), rhs.begin(), rhs.end());
+    return result;
+}
+
+wchar_t* ConvertVectorToUniString(vector<wchar_t> v) {
+    wchar_t* result = new wchar_t[v.size()];
+
+    for (unsigned int i = 0; i < v.size(); i++)
+        result[i] = v[i];
     return result;
 }
 
@@ -140,16 +152,16 @@ void FAT32::GetDirectory() {
 
         int index = 11;
 
+        vector<wchar_t> totalEntryName;
         while (index < 512) {
-            vector<vector<wchar_t>> extraEntryNames;
             if (sector[index] == 32) {
-                if (extraEntryNames.size() == 0) {
+                if (totalEntryName.size() == 0) {
                     vector<wchar_t> mainEntryName = GetStringValue(sector, index - 11, 11, false);
                     PrintUni(mainEntryName);
                 }
                 else {
-                    for (unsigned int i = 0; i < extraEntryNames.size(); i++)
-                        PrintUni(extraEntryNames[i]);
+                    PrintUni(totalEntryName);
+//                    totalEntryName.clear();
                 }
             }
 
@@ -159,17 +171,17 @@ void FAT32::GetDirectory() {
                     GetStringValue(sector, index - 11 + 14, 12, true) +
                     GetStringValue(sector, index - 11 + 28, 4, true);
 
-                extraEntryNames.insert(extraEntryNames.begin(), extraEntryName);
+                totalEntryName = extraEntryName + totalEntryName;
             }
 
             if (sector[index] == 16) {
-                if (extraEntryNames.size() == 0) {
+                if (totalEntryName.size() == 0) {
                     vector<wchar_t> mainEntryName = GetStringValue(sector, index - 11, 11, false);
                     PrintUni(mainEntryName);
                 }
                 else {
-                    for (unsigned int i = 0; i < extraEntryNames.size(); i++)
-                        PrintUni(extraEntryNames[i]);
+                    PrintUni(totalEntryName);
+//                    totalEntryName.clear();
                 }
             }
             index += 32;
@@ -177,8 +189,9 @@ void FAT32::GetDirectory() {
     } while (sector[0] != 0);
 }
 
-int main(int argc, char ** argv)
+int main(int argc, char** argv)
 {
+    _setmode(_fileno(stdout), 0x00020000);
     FAT32 fat32("\\\\.\\F:");
 //    fat32.GetInfo();
     fat32.GetDirectory();
