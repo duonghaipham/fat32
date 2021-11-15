@@ -5,31 +5,33 @@
 #include <string>
 #include <wchar.h>
 #include <vector>
-#include <sstream>
-
-#include <io.h>
+#include <locale>
 #include <fcntl.h>
+#include <io.h>
 
+#define _WIN32_WINNT 0x0601
 #define START_POINT_FILE 0
 #define BYTES_READ 512
 
+typedef struct _CONSOLE_FONT_INFOEX
+{
+    ULONG cbSize;
+    DWORD nFont;
+    COORD dwFontSize;
+    UINT  FontFamily;
+    UINT  FontWeight;
+    WCHAR FaceName[LF_FACESIZE];
+}CONSOLE_FONT_INFOEX, *PCONSOLE_FONT_INFOEX;
+#ifdef __cplusplus
+extern "C" {
+#endif
+BOOL WINAPI SetCurrentConsoleFontEx(HANDLE hConsoleOutput, BOOL bMaximumWindow, PCONSOLE_FONT_INFOEX
+lpConsoleCurrentFontEx);
+#ifdef __cplusplus
+}
+#endif
+
 using namespace std;
-
-vector<wchar_t> operator+(vector<wchar_t> lhs, vector<wchar_t> rhs) {
-    vector<wchar_t> result;
-    result.reserve(lhs.size() + rhs.size());
-    result.insert(result.end(), lhs.begin(), lhs.end());
-    result.insert(result.end(), rhs.begin(), rhs.end());
-    return result;
-}
-
-wchar_t* ConvertVectorToUniString(vector<wchar_t> v) {
-    wchar_t* result = new wchar_t[v.size()];
-
-    for (unsigned int i = 0; i < v.size(); i++)
-        result[i] = v[i];
-    return result;
-}
 
 class FAT32 {
 private:
@@ -44,13 +46,13 @@ private:
     int rootClus;
     int ReadSector(int readPoint, BYTE sector[]);
     int GetIntValue(BYTE sector[], int offset, int size);
-    vector<wchar_t> GetStringValue(BYTE sector[], int offset, int size, bool isShort);
+    wstring GetStringValue(BYTE sector[], int offset, int size, bool isShort);
     int FindFirstSectorOfCluster(int cluster);
-    void PrintUni(vector<wchar_t> output);
 public:
     FAT32(LPCSTR drive);
     void GetInfo();
-    void GetDirectory();
+    void GetDirectory(int readPoint);
+    int GetRootClus();
 };
 
 FAT32::FAT32(LPCSTR drive) {
@@ -101,8 +103,8 @@ int FAT32::GetIntValue(BYTE* sector, int offset, int size) {
     return value;
 }
 
-vector<wchar_t> FAT32::GetStringValue(BYTE sector[], int offset, int size, bool isShort) {
-    vector<wchar_t> value;
+wstring FAT32::GetStringValue(BYTE sector[], int offset, int size, bool isShort) {
+    wstring value;
     for (int i = offset; i < offset + size - 1;) {
         int intValue;
         if (isShort) {
@@ -115,14 +117,13 @@ vector<wchar_t> FAT32::GetStringValue(BYTE sector[], int offset, int size, bool 
         }
 
         wchar_t currChar = static_cast<wchar_t>(intValue);
-        value.push_back(currChar);
+        value += currChar;
     }
     return value;
 }
 
-void FAT32::PrintUni(vector<wchar_t> output) {
-    for (unsigned int i = 0; i < output.size(); i++)
-        wcout << output[i];
+int FAT32::GetRootClus() {
+    return rootClus;
 }
 
 int FAT32::FindFirstSectorOfCluster(int cluster) {
@@ -130,19 +131,19 @@ int FAT32::FindFirstSectorOfCluster(int cluster) {
 }
 
 void FAT32::GetInfo() {
-    cout << "So bytes/sector: " << bytsPerSec << endl;
-    cout << "So sector/cluster: " << secPerClus << endl;;
-    cout << "So sector Reserved: " << rsvdSecCnt << endl;
-    cout << "So bang FAT: " << numFATs << endl;
-    cout << "So sector cua mot bang FAT: " << fATSz32 << endl;
-    cout << "Tong sector volume: " << totSec32 << endl;
-    cout << "Dia chi sector dau tien bang FAT1: " << rsvdSecCnt << endl;
-    cout << "Dia chi sector dau tien Data: " << rsvdSecCnt + numFATs * fATSz32 << endl;
+    wcout << "So bytes/sector: " << bytsPerSec << endl;
+    wcout << "So sector/cluster: " << secPerClus << endl;;
+    wcout << "So sector Reserved: " << rsvdSecCnt << endl;
+    wcout << "So bang FAT: " << numFATs << endl;
+    wcout << "So sector cua mot bang FAT: " << fATSz32 << endl;
+    wcout << "Tong sector volume: " << totSec32 << endl;
+    wcout << "Dia chi sector dau tien bang FAT1: " << rsvdSecCnt << endl;
+    wcout << "Dia chi sector dau tien Data: " << rsvdSecCnt + numFATs * fATSz32 << endl;
 }
 
-void FAT32::GetDirectory() {
+void FAT32::GetDirectory(int cluster) {
     BYTE sector[BYTES_READ];
-    int readPoint = FindFirstSectorOfCluster(rootClus) * bytsPerSec;
+    int readPoint = FindFirstSectorOfCluster(cluster) * bytsPerSec;
 
     do {
         SetFilePointer(device, readPoint, NULL, FILE_BEGIN);
@@ -152,36 +153,40 @@ void FAT32::GetDirectory() {
 
         int index = 11;
 
-        vector<wchar_t> totalEntryName;
+        wstring totalEntryName;
         while (index < 512) {
             if (sector[index] == 32) {
                 if (totalEntryName.size() == 0) {
-                    vector<wchar_t> mainEntryName = GetStringValue(sector, index - 11, 11, false);
-                    PrintUni(mainEntryName);
+                    wstring mainEntryName = GetStringValue(sector, index - 11, 12, false);
+                    wprintf(L"%s\n", mainEntryName.c_str());
                 }
                 else {
-                    PrintUni(totalEntryName);
-//                    totalEntryName.clear();
+                    wprintf(L"%s\n", totalEntryName.c_str());
+                    totalEntryName.clear();
                 }
             }
 
             if (sector[index] == 15) {
-                vector<wchar_t> extraEntryName =
+                wstring extraEntryName =
                     GetStringValue(sector, index - 11 + 1, 10, true) +
                     GetStringValue(sector, index - 11 + 14, 12, true) +
                     GetStringValue(sector, index - 11 + 28, 4, true);
 
-                totalEntryName = extraEntryName + totalEntryName;
+                    totalEntryName = extraEntryName + totalEntryName;
             }
 
             if (sector[index] == 16) {
                 if (totalEntryName.size() == 0) {
-                    vector<wchar_t> mainEntryName = GetStringValue(sector, index - 11, 11, false);
-                    PrintUni(mainEntryName);
+                    wstring mainEntryName = GetStringValue(sector, index - 11, 11, false);
+                    wprintf(L"%s\n", mainEntryName.c_str());
                 }
                 else {
-                    PrintUni(totalEntryName);
-//                    totalEntryName.clear();
+                    wprintf(L"%s\n", totalEntryName.c_str());
+                    totalEntryName.clear();
+                }
+                if (sector[index - 11] != '.') {
+                    int firstCluster = GetIntValue(sector, index + 15, 2);
+                    GetDirectory(firstCluster);
                 }
             }
             index += 32;
@@ -189,11 +194,27 @@ void FAT32::GetDirectory() {
     } while (sector[0] != 0);
 }
 
-int main(int argc, char** argv)
-{
+void ConfigureConsoleLayout() {
+    CONSOLE_FONT_INFOEX cfi;
+    cfi.cbSize = sizeof cfi;
+    cfi.nFont = 0;
+    cfi.dwFontSize.X = 0;
+    cfi.dwFontSize.Y = 16;
+    cfi.FontFamily = FF_DONTCARE;
+    cfi.FontWeight = FW_NORMAL;
+
+    wcscpy(cfi.FaceName, L"Consolas");
+    SetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE), FALSE, &cfi);
+
     _setmode(_fileno(stdout), 0x00020000);
+}
+
+int main(int argc, char** argv) {
+    ConfigureConsoleLayout();
     FAT32 fat32("\\\\.\\F:");
 //    fat32.GetInfo();
-    fat32.GetDirectory();
+    int rootClus = fat32.GetRootClus();
+
+    fat32.GetDirectory(rootClus);
     return 0;
 }
