@@ -1,4 +1,3 @@
-*
-*/
-!ReadSector.cpp
-!.gitignore
+.vs/
+Debug/
+fat32/Debug/

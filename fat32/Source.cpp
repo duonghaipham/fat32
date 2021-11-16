@@ -9,19 +9,12 @@
 #include <fcntl.h>
 #include <io.h>
 
-#define _WIN32_WINNT 0x0601
 #define START_POINT_FILE 0
 #define BYTES_READ 512
+#define STOP_CLUSTER 268435455
 
-typedef struct _CONSOLE_FONT_INFOEX
-{
-    ULONG cbSize;
-    DWORD nFont;
-    COORD dwFontSize;
-    UINT  FontFamily;
-    UINT  FontWeight;
-    WCHAR FaceName[LF_FACESIZE];
-}CONSOLE_FONT_INFOEX, *PCONSOLE_FONT_INFOEX;
+#pragma warning (disable: 4996)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -35,7 +28,7 @@ using namespace std;
 
 class FAT32 {
 private:
-    LPCSTR drive;
+    LPCWSTR drive;
     HANDLE device;
     int bytsPerSec;
     int secPerClus;
@@ -48,14 +41,17 @@ private:
     int GetIntValue(BYTE sector[], int offset, int size);
     wstring GetStringValue(BYTE sector[], int offset, int size, bool isShort);
     int FindFirstSectorOfCluster(int cluster);
+    void GetFileInfo(BYTE sector[], int firstCluster, bool isFile);
+    vector<int> GetFileClusters(int firstCluster);
+    vector<int> GetFileSectors();
 public:
-    FAT32(LPCSTR drive);
+    FAT32(LPCWSTR drive);
     void GetInfo();
     void GetDirectory(int readPoint);
     int GetRootClus();
 };
 
-FAT32::FAT32(LPCSTR drive) {
+FAT32::FAT32(LPCWSTR drive) {
     this->drive = drive;
 
     device = CreateFile(drive,
@@ -89,11 +85,10 @@ int FAT32::ReadSector(int readPoint, BYTE sector[]) {
 
     if (!ReadFile(device, sector, BYTES_READ, &bytesRead, NULL))
         return 1;
-    else
-        return 0;
+    return 0;
 }
 
-int FAT32::GetIntValue(BYTE* sector, int offset, int size) {
+int FAT32::GetIntValue(BYTE sector[], int offset, int size) {
     int value = 0;
     int exp = 0;
     for (int i = offset; i < offset + size; i++) {
@@ -103,10 +98,10 @@ int FAT32::GetIntValue(BYTE* sector, int offset, int size) {
     return value;
 }
 
-wstring FAT32::GetStringValue(BYTE sector[], int offset, int size, bool isShort) {
+wstring FAT32::GetStringValue(BYTE sector[], int offset, int size, bool isShort) { // short: 2 bytes
     wstring value;
     for (int i = offset; i < offset + size - 1;) {
-        int intValue;
+        int intValue = 0;
         if (isShort) {
             intValue = GetIntValue(sector, i, 2);
             i += 2;
@@ -130,6 +125,28 @@ int FAT32::FindFirstSectorOfCluster(int cluster) {
     return (cluster - 2) * secPerClus + rsvdSecCnt + numFATs * fATSz32;
 }
 
+vector<int> FAT32::GetFileClusters(int firstCluster) {
+    vector<int> fileClusters;
+
+    BYTE sector[BYTES_READ];
+    int readPoint = rsvdSecCnt * bytsPerSec;
+
+    SetFilePointer(device, readPoint, NULL, FILE_BEGIN);
+    ReadSector(readPoint, sector);
+
+    readPoint += 512;
+
+
+    int clusterValue = firstCluster;
+
+    do {
+        fileClusters.push_back(clusterValue);
+        clusterValue = GetIntValue(sector, 4 * clusterValue, 4);
+    } while (clusterValue != STOP_CLUSTER);
+
+    return fileClusters;
+}
+
 void FAT32::GetInfo() {
     wcout << "So bytes/sector: " << bytsPerSec << endl;
     wcout << "So sector/cluster: " << secPerClus << endl;;
@@ -139,6 +156,18 @@ void FAT32::GetInfo() {
     wcout << "Tong sector volume: " << totSec32 << endl;
     wcout << "Dia chi sector dau tien bang FAT1: " << rsvdSecCnt << endl;
     wcout << "Dia chi sector dau tien Data: " << rsvdSecCnt + numFATs * fATSz32 << endl;
+}
+
+void FAT32::GetFileInfo(BYTE sector[], int firstCluster, bool isFile) {
+    vector<int> fileClusters = GetFileClusters(firstCluster);
+//    vector<int> fileSectors = GetFileSectors();
+
+    wcout << "Cluster bat dau: " << firstCluster << endl;
+    wcout << "Chiem cac cluster: ";
+
+    for (unsigned int i = 0; i < fileClusters.size(); i++)
+        wcout << fileClusters[i] << " ";
+    wcout << endl;
 }
 
 void FAT32::GetDirectory(int cluster) {
@@ -151,44 +180,50 @@ void FAT32::GetDirectory(int cluster) {
 
         readPoint += 512;
 
-        int index = 11;
+        int index = 0;
 
         wstring totalEntryName;
         while (index < 512) {
-            if (sector[index] == 32) {
-                if (totalEntryName.size() == 0) {
-                    wstring mainEntryName = GetStringValue(sector, index - 11, 12, false);
-                    wprintf(L"%s\n", mainEntryName.c_str());
-                }
-                else {
-                    wprintf(L"%s\n", totalEntryName.c_str());
-                    totalEntryName.clear();
-                }
-            }
+            if (sector[index + 11] == 16) {
+                if (sector[index] != '.') {
+                    if (totalEntryName.size() == 0) {
+                        wstring mainEntryName = GetStringValue(sector, index, 12, false);
+                        wprintf(L"%s\n", mainEntryName.c_str());
+                    }
+                    else
+                        wprintf(L"%s\n", totalEntryName.c_str());
 
-            if (sector[index] == 15) {
-                wstring extraEntryName =
-                    GetStringValue(sector, index - 11 + 1, 10, true) +
-                    GetStringValue(sector, index - 11 + 14, 12, true) +
-                    GetStringValue(sector, index - 11 + 28, 4, true);
-
-                    totalEntryName = extraEntryName + totalEntryName;
-            }
-
-            if (sector[index] == 16) {
-                if (totalEntryName.size() == 0) {
-                    wstring mainEntryName = GetStringValue(sector, index - 11, 11, false);
-                    wprintf(L"%s\n", mainEntryName.c_str());
-                }
-                else {
-                    wprintf(L"%s\n", totalEntryName.c_str());
-                    totalEntryName.clear();
-                }
-                if (sector[index - 11] != '.') {
-                    int firstCluster = GetIntValue(sector, index + 15, 2);
+                    int firstCluster = GetIntValue(sector, index + 26, 2) +
+                        (int) pow(16, 2) * GetIntValue(sector, index + 20, 2);
+                    GetFileInfo(sector, firstCluster, false);
                     GetDirectory(firstCluster);
                 }
             }
+
+            if (sector[index + 11] == 32) {
+                if (totalEntryName.size() == 0) {
+                    wstring mainEntryName = GetStringValue(sector, index, 12, false);
+                    wprintf(L"%s\n", mainEntryName.c_str());
+                }
+                else
+                    wprintf(L"%s\n", totalEntryName.c_str());
+
+                int firstCluster = GetIntValue(sector, index + 26, 2) +
+                    (int) pow(16, 2) * GetIntValue(sector, index + 20, 2);
+                GetFileInfo(sector, firstCluster, true);
+            }
+
+            if (sector[index + 11] == 15) {
+                wstring extraEntryName =
+                    GetStringValue(sector, index + 1, 10, true) +
+                    GetStringValue(sector, index + 14, 12, true) +
+                    GetStringValue(sector, index + 28, 4, true);
+
+                totalEntryName = extraEntryName + totalEntryName;
+            }
+            else
+                totalEntryName.clear();
+
             index += 32;
         }
     } while (sector[0] != 0);
@@ -211,8 +246,8 @@ void ConfigureConsoleLayout() {
 
 int main(int argc, char** argv) {
     ConfigureConsoleLayout();
-    FAT32 fat32("\\\\.\\F:");
-//    fat32.GetInfo();
+    FAT32 fat32(L"\\\\.\\E:");
+    //fat32.GetInfo();
     int rootClus = fat32.GetRootClus();
 
     fat32.GetDirectory(rootClus);
