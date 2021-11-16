@@ -26,7 +26,7 @@ lpConsoleCurrentFontEx);
 #endif
 
 using namespace std;
-
+int countTab = 0;
 class FAT32 {
 private:
     LPCWSTR drive;
@@ -50,6 +50,7 @@ public:
     void GetInfo();
     void GetDirectory(int readPoint);
     int GetRootClus();
+    void ReadData(wstring fileExtension, int firstCluster);
 };
 
 wstring rtrim(const wstring& ws) {
@@ -170,31 +171,64 @@ vector<int> FAT32::GetFileSectors(vector<int> fileClusters) {
 }
 
 void FAT32::GetInfo() {
-    wcout << "So bytes/sector: " << bytsPerSec << endl;
-    wcout << "So sector/cluster: " << secPerClus << endl;;
-    wcout << "So sector Reserved: " << rsvdSecCnt << endl;
-    wcout << "So bang FAT: " << numFATs << endl;
-    wcout << "So sector cua mot bang FAT: " << fATSz32 << endl;
-    wcout << "Tong sector volume: " << totSec32 << endl;
-    wcout << "Dia chi sector dau tien bang FAT1: " << rsvdSecCnt << endl;
-    wcout << "Dia chi sector dau tien Data: " << rsvdSecCnt + numFATs * fATSz32 << endl;
+    wprintf(L"\t\t\t --------------FAT32 full 100%%---------------\n");
+    wprintf(L"So bytes/sector: %d\n", bytsPerSec);
+    wprintf(L"So sector/cluster: %d\n", secPerClus);
+    wprintf(L"So sector Reserved: %d\n", rsvdSecCnt);
+    wprintf(L"So bang FAT: %d\n", numFATs);
+    wprintf(L"So sector cua mot bang FAT: %d\n", fATSz32);
+    wprintf(L"Tong sector volume: %d\n", totSec32);
+    wprintf(L"Dia chi sector dau tien bang FAT1: %d\n", rsvdSecCnt);
+    wprintf(L"Dia chi sector dau tien Data: %d\n", rsvdSecCnt + numFATs * fATSz32);
+    wprintf(L"\n\t\t\t --------------Cay thu muc---------------\n");
 }
+void FAT32::ReadData(wstring fileExtension, int firstCluster){
+    transform(fileExtension.begin(), fileExtension.end(), fileExtension.begin(), ::toupper);
+    for (int i = 0; i < countTab; i++)
+        wprintf(L"\t");
+    wprintf(L"+Noi dung: ");
+    if (wcscmp(fileExtension.c_str(), L"TXT") == 0) {
+        if (firstCluster != 0) {
+            vector<int> fileClusters = GetFileClusters(firstCluster);
+            vector<int> fileSectors = GetFileSectors(fileClusters);
 
+            for (unsigned int i = 0; i < fileSectors.size(); i++) {
+                BYTE sectorFile[BYTES_READ];
+
+                int readPointFile = fileSectors[i] * bytsPerSec;
+
+                SetFilePointer(device, readPointFile, NULL, FILE_BEGIN);
+                ReadSector(readPointFile, sectorFile);
+
+                for (int j = 0; j < BYTES_READ && sectorFile[j] != '\0'; j += 1)
+                    wprintf(L"%c", sectorFile[j]);
+            }
+        }
+        wprintf(L"\n");
+    }
+    else 
+        wprintf(L"Can phan mem khac de doc file khac .txt\n");
+    wprintf(L"\n");
+}
 void FAT32::GetFileInfo(BYTE sector[], int firstCluster) {
     vector<int> fileClusters = GetFileClusters(firstCluster);
     vector<int> fileSectors = GetFileSectors(fileClusters);
-
-    wcout << "Cluster bat dau: " << firstCluster << endl;
-    wcout << "Chiem cac cluster: ";
+    for (int i = 0; i < countTab; i++)
+        wprintf(L"\t");
+    wprintf(L"+Cluster bat dau: %d\n", firstCluster);
+    for (int i = 0; i < countTab; i++)
+        wprintf(L"\t");
+    wprintf(L"+Chiem cac cluster: ");
 
     for (unsigned int i = 0; i < fileClusters.size(); i++)
-        wcout << fileClusters[i] << " ";
-    wcout << endl;
-
-    wcout << "Chiem cac sector: ";
+        wprintf(L"%d ", fileClusters[i]);
+    wprintf(L"\n");
+    for (int i = 0; i < countTab; i++)
+        wprintf(L"\t");
+    wprintf(L"+Chiem cac sector: ");
     for (unsigned int i = 0; i < fileSectors.size(); i++)
-        wcout << fileSectors[i] << " ";
-    wcout << endl;
+        wprintf(L"%d ", fileSectors[i]);
+    wprintf(L"\n");
 }
 
 void FAT32::GetDirectory(int cluster) {
@@ -212,18 +246,30 @@ void FAT32::GetDirectory(int cluster) {
         wstring totalEntryName;
         while (index < 512) {
             if (sector[index + 11] == 16) {
+
                 if (sector[index] != '.') {
                     if (totalEntryName.size() == 0) {
                         wstring mainEntryName = GetStringValue(sector, index, 12, false);
+                        for (int i = 0; i < countTab; i++)
+                            wprintf(L"\t");
                         wprintf(L"%s\n", mainEntryName.c_str());
                     }
                     else
+                    {
+                        for (int i = 0; i < countTab; i++)
+                            wprintf(L"\t");
                         wprintf(L"%s\n", totalEntryName.c_str());
+                    }
 
+                    for (int i = 0; i < countTab; i++)
+                        wprintf(L"\t");
+                    wprintf(L"+Loai tap tin: Thu muc\n");
                     int firstCluster = GetIntValue(sector, index + 26, 2) +
                         (int) pow(16, 2) * GetIntValue(sector, index + 20, 2);
                     GetFileInfo(sector, firstCluster);
+                    countTab++;
                     GetDirectory(firstCluster);
+                    countTab--;
                 }
             }
 
@@ -235,16 +281,22 @@ void FAT32::GetDirectory(int cluster) {
                     fileExtension = rtrim(GetStringValue(sector, index + 8, 4, false));
 
                     wstring mainEntryName = (fileExtension == L"") ? fileName : fileName + L"." + fileExtension;
-
+                    for (int i = 0; i < countTab; i++)
+                        wprintf(L"\t");
                     wprintf(L"%s\n", mainEntryName.c_str());
                 }
                 else {
                     int dotIndex = totalEntryName.rfind(L'.');
                     fileExtension = (dotIndex == wstring::npos) ? L"" :
                         totalEntryName.substr(dotIndex + 1, totalEntryName.length() - dotIndex - 1);
-
+                    for (int i = 0; i < countTab; i++)
+                        wprintf(L"\t");
                     wprintf(L"%s\n", totalEntryName.c_str());
                 }
+
+                for (int i = 0; i < countTab; i++)
+                    wprintf(L"\t");
+                wprintf(L"+Loai tap tin: Tap tin\n");
 
                 int firstCluster = GetIntValue(sector, index + 26, 2) +
                     (int) pow(16, 2) * GetIntValue(sector, index + 20, 2);
@@ -253,31 +305,10 @@ void FAT32::GetDirectory(int cluster) {
                     GetFileInfo(sector, firstCluster);
 
                 int fileSize = GetIntValue(sector, index + 28, 4) * bytsPerSec;
-                wcout << "Kich co: " << fileSize << " B" << endl;
-
-                transform(fileExtension.begin(), fileExtension.end(), fileExtension.begin(), ::toupper);
-
-                if (wcscmp(fileExtension.c_str(), L"TXT") == 0) {
-                    if (firstCluster != 0) {
-                        vector<int> fileClusters = GetFileClusters(firstCluster);
-                        vector<int> fileSectors = GetFileSectors(fileClusters);
-
-                        for (unsigned int i = 0; i < fileSectors.size(); i++) {
-                            BYTE sectorFile[BYTES_READ];
-
-                            int readPointFile = fileSectors[i] * bytsPerSec;
-
-                            SetFilePointer(device, readPointFile, NULL, FILE_BEGIN);
-                            ReadSector(readPointFile, sectorFile);
-
-                            for (int j = 0; j < BYTES_READ && sectorFile[j] != '\0'; j += 1)
-                                wprintf(L"%c", sectorFile[j]);
-                        }
-                    }
-                    wprintf(L"\n");
-                }
-                else
-                    wprintf(L"Can phan mem khac de doc file khac .txt\n");
+                for (int i = 0; i < countTab; i++)
+                    wprintf(L"\t");
+                wprintf(L"+Kich co %d Byte\n", fileSize);
+                ReadData(fileExtension, firstCluster);
             }
 
             if (sector[index + 11] == 15) {
@@ -308,13 +339,13 @@ void ConfigureConsoleLayout() {
     wcscpy(cfi.FaceName, L"Consolas");
     SetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE), FALSE, &cfi);
 
-    _setmode(_fileno(stdout), 0x00020000);
+    int value = _setmode(_fileno(stdout), 0x00020000);
 }
 
 int main(int argc, char** argv) {
     ConfigureConsoleLayout();
     FAT32 fat32(L"\\\\.\\E:");
-    //fat32.GetInfo();
+    fat32.GetInfo();
     int rootClus = fat32.GetRootClus();
 
     fat32.GetDirectory(rootClus);
