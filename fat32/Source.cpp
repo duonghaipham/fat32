@@ -8,6 +8,7 @@
 #include <locale>
 #include <fcntl.h>
 #include <io.h>
+#include <algorithm>
 
 #define START_POINT_FILE 0
 #define BYTES_READ 512
@@ -41,15 +42,20 @@ private:
     int GetIntValue(BYTE sector[], int offset, int size);
     wstring GetStringValue(BYTE sector[], int offset, int size, bool isShort);
     int FindFirstSectorOfCluster(int cluster);
-    void GetFileInfo(BYTE sector[], int firstCluster, bool isFile);
+    void GetFileInfo(BYTE sector[], int firstCluster);
     vector<int> GetFileClusters(int firstCluster);
-    vector<int> GetFileSectors();
+    vector<int> GetFileSectors(vector<int> fileClusters);
 public:
     FAT32(LPCWSTR drive);
     void GetInfo();
     void GetDirectory(int readPoint);
     int GetRootClus();
 };
+
+wstring rtrim(const wstring& ws) {
+    size_t end = ws.find_last_not_of(' ');
+    return (end == wstring::npos) ? L"" : ws.substr(0, end + 1);
+}
 
 FAT32::FAT32(LPCWSTR drive) {
     this->drive = drive;
@@ -133,18 +139,34 @@ vector<int> FAT32::GetFileClusters(int firstCluster) {
 
     SetFilePointer(device, readPoint, NULL, FILE_BEGIN);
     ReadSector(readPoint, sector);
-
-    readPoint += 512;
-
+    readPoint += BYTES_READ;
 
     int clusterValue = firstCluster;
-
     do {
         fileClusters.push_back(clusterValue);
-        clusterValue = GetIntValue(sector, 4 * clusterValue, 4);
+        clusterValue = GetIntValue(sector, (4 * clusterValue) % 512, 4);
+
+        if (clusterValue > readPoint / 4) {
+            SetFilePointer(device, readPoint, NULL, FILE_BEGIN);
+            ReadSector(readPoint, sector);
+            readPoint += BYTES_READ;
+        }
     } while (clusterValue != STOP_CLUSTER);
 
     return fileClusters;
+}
+
+vector<int> FAT32::GetFileSectors(vector<int> fileClusters) {
+    vector<int> fileSectors;
+    
+    for (unsigned int i = 0; i < fileClusters.size(); i++) {
+        int firstSector = FindFirstSectorOfCluster(fileClusters[i]);
+
+        for (int i = 0; i < secPerClus; i++)
+            fileSectors.push_back(firstSector + i);
+    }
+
+    return fileSectors;
 }
 
 void FAT32::GetInfo() {
@@ -158,15 +180,20 @@ void FAT32::GetInfo() {
     wcout << "Dia chi sector dau tien Data: " << rsvdSecCnt + numFATs * fATSz32 << endl;
 }
 
-void FAT32::GetFileInfo(BYTE sector[], int firstCluster, bool isFile) {
+void FAT32::GetFileInfo(BYTE sector[], int firstCluster) {
     vector<int> fileClusters = GetFileClusters(firstCluster);
-//    vector<int> fileSectors = GetFileSectors();
+    vector<int> fileSectors = GetFileSectors(fileClusters);
 
     wcout << "Cluster bat dau: " << firstCluster << endl;
     wcout << "Chiem cac cluster: ";
 
     for (unsigned int i = 0; i < fileClusters.size(); i++)
         wcout << fileClusters[i] << " ";
+    wcout << endl;
+
+    wcout << "Chiem cac sector: ";
+    for (unsigned int i = 0; i < fileSectors.size(); i++)
+        wcout << fileSectors[i] << " ";
     wcout << endl;
 }
 
@@ -195,22 +222,62 @@ void FAT32::GetDirectory(int cluster) {
 
                     int firstCluster = GetIntValue(sector, index + 26, 2) +
                         (int) pow(16, 2) * GetIntValue(sector, index + 20, 2);
-                    GetFileInfo(sector, firstCluster, false);
+                    GetFileInfo(sector, firstCluster);
                     GetDirectory(firstCluster);
                 }
             }
 
             if (sector[index + 11] == 32) {
+                wstring fileExtension;
+
                 if (totalEntryName.size() == 0) {
-                    wstring mainEntryName = GetStringValue(sector, index, 12, false);
+                    wstring fileName = rtrim(GetStringValue(sector, index, 8, false));
+                    fileExtension = rtrim(GetStringValue(sector, index + 8, 4, false));
+
+                    wstring mainEntryName = (fileExtension == L"") ? fileName : fileName + L"." + fileExtension;
+
                     wprintf(L"%s\n", mainEntryName.c_str());
                 }
-                else
+                else {
+                    int dotIndex = totalEntryName.rfind(L'.');
+                    fileExtension = (dotIndex == wstring::npos) ? L"" :
+                        totalEntryName.substr(dotIndex + 1, totalEntryName.length() - dotIndex - 1);
+
                     wprintf(L"%s\n", totalEntryName.c_str());
+                }
 
                 int firstCluster = GetIntValue(sector, index + 26, 2) +
                     (int) pow(16, 2) * GetIntValue(sector, index + 20, 2);
-                GetFileInfo(sector, firstCluster, true);
+
+                if (firstCluster != 0)
+                    GetFileInfo(sector, firstCluster);
+
+                int fileSize = GetIntValue(sector, index + 28, 4) * bytsPerSec;
+                wcout << "Kich co: " << fileSize << " B" << endl;
+
+                transform(fileExtension.begin(), fileExtension.end(), fileExtension.begin(), ::toupper);
+
+                if (wcscmp(fileExtension.c_str(), L"TXT") == 0) {
+                    if (firstCluster != 0) {
+                        vector<int> fileClusters = GetFileClusters(firstCluster);
+                        vector<int> fileSectors = GetFileSectors(fileClusters);
+
+                        for (unsigned int i = 0; i < fileSectors.size(); i++) {
+                            BYTE sectorFile[BYTES_READ];
+
+                            int readPointFile = fileSectors[i] * bytsPerSec;
+
+                            SetFilePointer(device, readPointFile, NULL, FILE_BEGIN);
+                            ReadSector(readPointFile, sectorFile);
+
+                            for (int j = 0; j < BYTES_READ && sectorFile[j] != '\0'; j += 1)
+                                wprintf(L"%c", sectorFile[j]);
+                        }
+                    }
+                    wprintf(L"\n");
+                }
+                else
+                    wprintf(L"Can phan mem khac de doc file khac .txt\n");
             }
 
             if (sector[index + 11] == 15) {
