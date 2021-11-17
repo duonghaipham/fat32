@@ -16,8 +16,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-BOOL WINAPI SetCurrentConsoleFontEx(HANDLE hConsoleOutput, BOOL bMaximumWindow, PCONSOLE_FONT_INFOEX
-lpConsoleCurrentFontEx);
+    BOOL WINAPI SetCurrentConsoleFontEx(HANDLE hConsoleOutput, BOOL bMaximumWindow, PCONSOLE_FONT_INFOEX
+        lpConsoleCurrentFontEx);
 #ifdef __cplusplus
 }
 #endif
@@ -43,6 +43,8 @@ private:
     void GetFileInfo(BYTE sector[], int firstCluster);
     vector<int> GetFileClusters(int firstCluster);
     vector<int> GetFileSectors(vector<int> fileClusters);
+    void PrintTab();
+    void ReadLength(BYTE sector[], int index);
 public:
     FAT32(LPCWSTR drive);
     void GetInfo();
@@ -96,12 +98,18 @@ int FAT32::ReadSector(int readPoint, BYTE sector[]) {
     return 0;
 }
 
+// print Tab
+void FAT32::PrintTab() {
+    for (int i = 0; i < countTab; i++)
+        wprintf(L"\t");
+}
+
 //Lay gia tri nguyen tu sector
 int FAT32::GetIntValue(BYTE sector[], int offset, int size) {
     int value = 0;
     int exp = 0;
     for (int i = offset; i < offset + size; i++) {
-        value += (int) pow(16, exp) * sector[i];
+        value += (int)pow(16, exp) * sector[i];
         exp += 2;
     }
     return value;
@@ -166,7 +174,7 @@ vector<int> FAT32::GetFileClusters(int firstCluster) {
 //Lay ra nhung sector cua nhung cluster tuong ung
 vector<int> FAT32::GetFileSectors(vector<int> fileClusters) {
     vector<int> fileSectors;
-    
+
     for (unsigned int i = 0; i < fileClusters.size(); i++) {
         int firstSector = FindFirstSectorOfCluster(fileClusters[i]);
 
@@ -192,10 +200,9 @@ void FAT32::GetInfo() {
 }
 
 //Doc noi dung tap tin
-void FAT32::ReadData(wstring fileExtension, int firstCluster){
+void FAT32::ReadData(wstring fileExtension, int firstCluster) {
     transform(fileExtension.begin(), fileExtension.end(), fileExtension.begin(), ::toupper);
-    for (int i = 0; i < countTab; i++)
-        wprintf(L"\t");
+    PrintTab();
     wprintf(L"+Noi dung: ");
     if (wcscmp(fileExtension.c_str(), L"TXT") == 0) {
         if (firstCluster != 0) {
@@ -216,7 +223,7 @@ void FAT32::ReadData(wstring fileExtension, int firstCluster){
         }
         wprintf(L"\n");
     }
-    else 
+    else
         wprintf(L"Can phan mem khac de doc file khac .txt\n");
     wprintf(L"\n");
 }
@@ -225,25 +232,29 @@ void FAT32::ReadData(wstring fileExtension, int firstCluster){
 void FAT32::GetFileInfo(BYTE sector[], int firstCluster) {
     vector<int> fileClusters = GetFileClusters(firstCluster);
     vector<int> fileSectors = GetFileSectors(fileClusters);
-    for (int i = 0; i < countTab; i++)
-        wprintf(L"\t");
+    PrintTab();
     wprintf(L"+Cluster bat dau: %d\n", firstCluster);
-    for (int i = 0; i < countTab; i++)
-        wprintf(L"\t");
+    PrintTab();
     wprintf(L"+Chiem cac cluster: ");
 
     for (unsigned int i = 0; i < fileClusters.size(); i++)
         wprintf(L"%d ", fileClusters[i]);
     wprintf(L"\n");
-    for (int i = 0; i < countTab; i++)
-        wprintf(L"\t");
+    PrintTab();
     wprintf(L"+Chiem cac sector: ");
     for (unsigned int i = 0; i < fileSectors.size(); i++)
         wprintf(L"%d ", fileSectors[i]);
     wprintf(L"\n");
 }
 
-//Lay nhung tap tin con trong thu muc
+//Lay thong tin size
+void FAT32::ReadLength(BYTE sector[], int index) {
+    int fileSize = GetIntValue(sector, index + 28, 4) * bytsPerSec;
+    PrintTab();
+    wprintf(L"+Kich co %d Byte\n", fileSize);
+}
+
+//Lay nhung tap tin con trong thu muc goc
 void FAT32::GetDirectory(int cluster) {
     BYTE sector[BYTES_READ];
     int readPoint = FindFirstSectorOfCluster(cluster) * bytsPerSec;
@@ -263,23 +274,23 @@ void FAT32::GetDirectory(int cluster) {
                 if (sector[index] != '.') {
                     if (totalEntryName.size() == 0) {
                         wstring mainEntryName = GetStringValue(sector, index, 12, false);
-                        for (int i = 0; i < countTab; i++)
-                            wprintf(L"\t");
+                        PrintTab();
                         wprintf(L"%s\n", mainEntryName.c_str());
                     }
                     else
                     {
-                        for (int i = 0; i < countTab; i++)
-                            wprintf(L"\t");
+                        PrintTab();
                         wprintf(L"%s\n", totalEntryName.c_str());
                     }
 
-                    for (int i = 0; i < countTab; i++)
-                        wprintf(L"\t");
+                    PrintTab();
                     wprintf(L"+Loai tap tin: Thu muc\n");
+
                     int firstCluster = GetIntValue(sector, index + 26, 2) +
-                        (int) pow(16, 2) * GetIntValue(sector, index + 20, 2);
+                        (int)pow(16, 2) * GetIntValue(sector, index + 20, 2);
                     GetFileInfo(sector, firstCluster);
+
+                    //De quy
                     countTab++;
                     GetDirectory(firstCluster);
                     countTab--;
@@ -294,33 +305,30 @@ void FAT32::GetDirectory(int cluster) {
                     fileExtension = rtrim(GetStringValue(sector, index + 8, 4, false));
 
                     wstring mainEntryName = (fileExtension == L"") ? fileName : fileName + L"." + fileExtension;
-                    for (int i = 0; i < countTab; i++)
-                        wprintf(L"\t");
+                    PrintTab();
                     wprintf(L"%s\n", mainEntryName.c_str());
                 }
                 else {
                     int dotIndex = totalEntryName.rfind(L'.');
                     fileExtension = (dotIndex == wstring::npos) ? L"" :
                         totalEntryName.substr(dotIndex + 1, totalEntryName.length() - dotIndex - 1);
-                    for (int i = 0; i < countTab; i++)
-                        wprintf(L"\t");
+                    PrintTab();
                     wprintf(L"%s\n", totalEntryName.c_str());
                 }
 
-                for (int i = 0; i < countTab; i++)
-                    wprintf(L"\t");
+                PrintTab();
                 wprintf(L"+Loai tap tin: Tap tin\n");
 
                 int firstCluster = GetIntValue(sector, index + 26, 2) +
-                    (int) pow(16, 2) * GetIntValue(sector, index + 20, 2);
+                    (int)pow(16, 2) * GetIntValue(sector, index + 20, 2);
 
                 if (firstCluster != 0)
                     GetFileInfo(sector, firstCluster);
 
-                int fileSize = GetIntValue(sector, index + 28, 4) * bytsPerSec;
-                for (int i = 0; i < countTab; i++)
-                    wprintf(L"\t");
-                wprintf(L"+Kich co %d Byte\n", fileSize);
+                ReadLength(sector, index);
+                /*int fileSize = GetIntValue(sector, index + 28, 4) * bytsPerSec;
+                PrintTab();
+                wprintf(L"+Kich co %d Byte\n", fileSize);*/
                 ReadData(fileExtension, firstCluster);
             }
 
