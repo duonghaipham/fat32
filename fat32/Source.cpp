@@ -1,11 +1,8 @@
 #include <windows.h>
-#include <iostream>
 #include <stdio.h>
 #include <math.h>
 #include <string>
-#include <wchar.h>
 #include <vector>
-#include <locale>
 #include <fcntl.h>
 #include <io.h>
 #include <algorithm>
@@ -26,7 +23,7 @@ lpConsoleCurrentFontEx);
 #endif
 
 using namespace std;
-int countTab = 0;
+
 class FAT32 {
 private:
     LPCWSTR drive;
@@ -38,6 +35,7 @@ private:
     int totSec32;
     int fATSz32;
     int rootClus;
+    int countTab = 0;
     int ReadSector(int readPoint, BYTE sector[]);
     int GetIntValue(BYTE sector[], int offset, int size);
     wstring GetStringValue(BYTE sector[], int offset, int size, bool isShort);
@@ -53,11 +51,13 @@ public:
     void ReadData(wstring fileExtension, int firstCluster);
 };
 
+//Loai bo dau cach o cuoi chuoi
 wstring rtrim(const wstring& ws) {
     size_t end = ws.find_last_not_of(' ');
     return (end == wstring::npos) ? L"" : ws.substr(0, end + 1);
 }
 
+//Ham tao cua FAT32
 FAT32::FAT32(LPCWSTR drive) {
     this->drive = drive;
 
@@ -82,6 +82,7 @@ FAT32::FAT32(LPCWSTR drive) {
     }
 }
 
+//Doc sector
 int FAT32::ReadSector(int readPoint, BYTE sector[]) {
     DWORD bytesRead;
 
@@ -95,6 +96,7 @@ int FAT32::ReadSector(int readPoint, BYTE sector[]) {
     return 0;
 }
 
+//Lay gia tri nguyen tu sector
 int FAT32::GetIntValue(BYTE sector[], int offset, int size) {
     int value = 0;
     int exp = 0;
@@ -105,6 +107,7 @@ int FAT32::GetIntValue(BYTE sector[], int offset, int size) {
     return value;
 }
 
+//Lay gia tri chuoi tu sector
 wstring FAT32::GetStringValue(BYTE sector[], int offset, int size, bool isShort) { // short: 2 bytes
     wstring value;
     for (int i = offset; i < offset + size - 1;) {
@@ -124,14 +127,17 @@ wstring FAT32::GetStringValue(BYTE sector[], int offset, int size, bool isShort)
     return value;
 }
 
+//Lay ra cluster dau tien cua root directory
 int FAT32::GetRootClus() {
     return rootClus;
 }
 
+//Tim sector dau tien cua cluster
 int FAT32::FindFirstSectorOfCluster(int cluster) {
     return (cluster - 2) * secPerClus + rsvdSecCnt + numFATs * fATSz32;
 }
 
+//Tim ra nhung sector cua cluster
 vector<int> FAT32::GetFileClusters(int firstCluster) {
     vector<int> fileClusters;
 
@@ -157,6 +163,7 @@ vector<int> FAT32::GetFileClusters(int firstCluster) {
     return fileClusters;
 }
 
+//Lay ra nhung sector cua nhung cluster tuong ung
 vector<int> FAT32::GetFileSectors(vector<int> fileClusters) {
     vector<int> fileSectors;
     
@@ -170,6 +177,7 @@ vector<int> FAT32::GetFileSectors(vector<int> fileClusters) {
     return fileSectors;
 }
 
+//Thong tin cua FAT32
 void FAT32::GetInfo() {
     wprintf(L"\t\t\t --------------FAT32 full 100%%---------------\n");
     wprintf(L"So bytes/sector: %d\n", bytsPerSec);
@@ -182,6 +190,8 @@ void FAT32::GetInfo() {
     wprintf(L"Dia chi sector dau tien Data: %d\n", rsvdSecCnt + numFATs * fATSz32);
     wprintf(L"\n\t\t\t --------------Cay thu muc---------------\n");
 }
+
+//Doc noi dung tap tin
 void FAT32::ReadData(wstring fileExtension, int firstCluster){
     transform(fileExtension.begin(), fileExtension.end(), fileExtension.begin(), ::toupper);
     for (int i = 0; i < countTab; i++)
@@ -210,6 +220,8 @@ void FAT32::ReadData(wstring fileExtension, int firstCluster){
         wprintf(L"Can phan mem khac de doc file khac .txt\n");
     wprintf(L"\n");
 }
+
+//Lay thong tin tap tin
 void FAT32::GetFileInfo(BYTE sector[], int firstCluster) {
     vector<int> fileClusters = GetFileClusters(firstCluster);
     vector<int> fileSectors = GetFileSectors(fileClusters);
@@ -231,6 +243,7 @@ void FAT32::GetFileInfo(BYTE sector[], int firstCluster) {
     wprintf(L"\n");
 }
 
+//Lay nhung tap tin con trong thu muc
 void FAT32::GetDirectory(int cluster) {
     BYTE sector[BYTES_READ];
     int readPoint = FindFirstSectorOfCluster(cluster) * bytsPerSec;
@@ -327,6 +340,7 @@ void FAT32::GetDirectory(int cluster) {
     } while (sector[0] != 0);
 }
 
+//Cau hinh cua so Console
 void ConfigureConsoleLayout() {
     CONSOLE_FONT_INFOEX cfi;
     cfi.cbSize = sizeof cfi;
@@ -347,7 +361,7 @@ int main(int argc, char** argv) {
     FAT32 fat32(L"\\\\.\\E:");
     fat32.GetInfo();
     int rootClus = fat32.GetRootClus();
-
     fat32.GetDirectory(rootClus);
+
     return 0;
 }
